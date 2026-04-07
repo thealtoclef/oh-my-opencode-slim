@@ -378,14 +378,19 @@ export function createTodoContinuationHook(
       const status = properties.status as { type: string };
       const sessionID = properties.sessionID as string;
       if (status?.type === 'busy') {
-        // Cancel any pending timer when session becomes active
-        cancelPendingTimer(state);
+        const isOrchestrator = sessionID === state.orchestratorSessionId;
+
+        // Only cancel timer for orchestrator session — sub-agents going
+        // busy must not silently kill the orchestrator's continuation.
+        if (isOrchestrator) {
+          cancelPendingTimer(state);
+        }
 
         // Only reset consecutive counter for user-initiated activity,
         // not for our own auto-injection prompt. Scope to orchestrator only.
         if (
           !state.isAutoInjecting &&
-          sessionID === state.orchestratorSessionId &&
+          isOrchestrator &&
           state.consecutiveContinuations > 0
         ) {
           state.consecutiveContinuations = 0;
@@ -422,12 +427,14 @@ export function createTodoContinuationHook(
         (properties.info as { id?: string })?.id ??
         (properties.sessionID as string);
 
-      cancelPendingTimer(state);
-      log(`[${HOOK_NAME}] Cancelled pending timer on delete`, {
-        sessionID: deletedSessionId,
-      });
-
+      // Only cancel timer if the orchestrator session itself was deleted.
+      // Background sub-agent deletion must not kill the orchestrator's timer.
       if (state.orchestratorSessionId === deletedSessionId) {
+        cancelPendingTimer(state);
+        log(`[${HOOK_NAME}] Cancelled pending timer on orchestrator delete`, {
+          sessionID: deletedSessionId,
+        });
+
         resetState(state);
         state.orchestratorSessionId = null;
         log(`[${HOOK_NAME}] Reset orchestrator session on delete`, {
